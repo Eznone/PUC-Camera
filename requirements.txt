@@ -5,6 +5,4 @@ matplotlib
 mahotas
 scikit-learn
 scikit-image
-opencv-contrib-python
 opencv-python
-jupyter

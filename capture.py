@@ -2,7 +2,9 @@ import cv2
 import numpy as np
 import argparse
 import math
+import imutils
 from matplotlib import pyplot as plt
+from tracking import *
 
 # Functions ---------------------------------------------------------------
 def adjust_gamma(image, gamma = 1.0):
@@ -87,7 +89,9 @@ def waterShedFrame(frame, opening, imgResult):
     cv2.watershed(frame, markers)
     mark = markers.astype('uint8')
     mark = cv2.bitwise_not(mark)
-    cv2.imshow('Markers_v2', mark)
+    #cv2.imshow('Markers_v2', mark)
+
+    return mark
 
 
     
@@ -105,6 +109,8 @@ while True:
     if not ret:
         break
 
+    frame = imutils.resize(frame, width=1200)
+
     # Createing sharp image
     sharp_frame = createSharpFrame(frame)
 
@@ -112,18 +118,30 @@ while True:
     threshed_frame = processFrame(frame, 0.4)
     watershed_frame = waterShedFrame(frame.copy(), threshed_frame, sharp_frame)
 
-    contours, _ = cv2.findContours(threshed_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = returnBoxes(frame)
+
+    frame2 = frame.copy()
+    frame3 = frame.copy()
+
+    contours, _ = cv2.findContours(watershed_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours: 
         area = cv2.contourArea(cnt)
         if area > 100:
             x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(frame, (x,y), (x + w, y+ h), (0, 255, 0), 3)
+            cv2.rectangle(frame2, (x,y), (x + w, y+ h), (0, 255, 0), 3)
 
+
+    boxes = returnBoxes(frame)
+    for box in boxes:
+        (x, y, w, h) = [int(v) for v in box]
+        cv2.rectangle(frame3, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
 
     # Display the frame
     cv2.imshow('Thresh Frame', threshed_frame)
+    cv2.imshow('WaterShed Frame', watershed_frame)
     #cv2.imshow('Frame', frame)
+    cv2.imshow('Boxes', frame3)
 
     # Key event listener to end video replay
     if cv2.waitKey(delay) & 0xFF == ord('q'):

@@ -68,11 +68,25 @@ def waterShedFrame(frame, opening, imgResult):
     cv2.normalize(dist, dist, 0, 1.0, cv2.NORM_MINMAX)
     #cv2.imshow('Distance Transform Image', dist)
 
-    _, dist = cv2.threshold(dist, 0.4, 1.0, cv2.THRESH_BINARY)
+
+
+
+    # Step to focus on
+    _, dist = cv2.threshold(dist, 0.3, 1.0, cv2.THRESH_BINARY)
     dist = cv2.dilate(dist, kernel)
     #cv2.imshow('Peaks', dist)
+    # Opening to remove a LOT of noise
+    eroded = cv2.erode(dist,kernel,iterations = 1)
+    opening = cv2.dilate(eroded,kernel,iterations = 1)
 
-    dist_8u = dist.astype('uint8')
+
+    #cv2.imshow('Opening', opening)
+
+
+
+
+
+    dist_8u = opening.astype('uint8')
     # Find total markers
     contours, _ = cv2.findContours(dist_8u, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     # Create the marker image for the watershed algorithm
@@ -91,11 +105,69 @@ def waterShedFrame(frame, opening, imgResult):
     mark = cv2.bitwise_not(mark)
     #cv2.imshow('Markers_v2', mark)
 
+    _, mark = cv2.threshold(mark, 50, 230, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+
     return mark
 
 
-    
 
+
+
+def secondWaterShed(original_frame, threshed_frame):
+    # noise removal
+    kernel = np.ones((3,3),np.uint8)
+    opening = cv2.morphologyEx(threshed_frame,cv2.MORPH_OPEN,kernel, iterations = 2)
+    
+    # sure background area
+    sure_bg = cv2.dilate(opening,kernel,iterations=3)
+    
+    # Finding sure foreground area
+    dist_transform = cv2.distanceTransform(opening,cv2.DIST_L2,3)
+    ret, sure_fg = cv2.threshold(dist_transform,0.7*dist_transform.max(),255,0)
+    
+    # Finding unknown region
+    sure_fg = np.uint8(sure_fg)
+
+    cv2.imshow("sure fore", sure_fg)
+    cv2.imshow("sure fback", sure_bg)
+
+
+    unknown = cv2.subtract(sure_bg,sure_fg)
+
+    cv2.imshow("unknown", unknown)
+
+    # Marker labelling
+    ret, markers = cv2.connectedComponents(sure_fg)
+    
+    cv2.imshow("markers", markers)
+
+
+    # Add one to all labels so that sure background is not 0, but 1
+    markers = markers+1
+    
+    # Now, mark the region of unknown with zero
+    markers[unknown==255] = 0
+
+    markers = cv2.watershed(original_frame, markers)
+    original_frame[markers == -1] = [255,0,0]
+
+    #cv2.imshow("Water2", original_frame)
+    return original_frame
+
+
+
+
+
+def drawBoxes(original_frame, threshed_frame):
+    contours, _ = cv2.findContours(threshed_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours: 
+        area = cv2.contourArea(cnt)
+        if area > 100:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(original_frame, (x,y), (x + w, y+ h), (0, 255, 0), 3)
+    
+    return original_frame
 
 
 # Main --------------------------------------------------------------------
@@ -115,33 +187,25 @@ while True:
     sharp_frame = createSharpFrame(frame)
 
     # Processing frame
-    threshed_frame = processFrame(frame, 0.4)
+    threshed_frame = processFrame(frame, 0.5)
     watershed_frame = waterShedFrame(frame.copy(), threshed_frame, sharp_frame)
+    second_watershed_frame = secondWaterShed(frame.copy(), threshed_frame)
 
-    boxes = returnBoxes(frame)
+    # boxes = returnBoxes(frame)
 
     frame2 = frame.copy()
-    frame3 = frame.copy()
+    frame2 = drawBoxes(frame2, watershed_frame)
 
-    contours, _ = cv2.findContours(watershed_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    for cnt in contours: 
-        area = cv2.contourArea(cnt)
-        if area > 100:
-            x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(frame2, (x,y), (x + w, y+ h), (0, 255, 0), 3)
-
-
-    boxes = returnBoxes(frame)
-    for box in boxes:
-        (x, y, w, h) = [int(v) for v in box]
-        cv2.rectangle(frame3, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    # boxes = returnBoxes(frame)
+    # for box in boxes:
+    #     (x, y, w, h) = [int(v) for v in box]
+    #     cv2.rectangle(frame3, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
 
     # Display the frame
-    cv2.imshow('Thresh Frame', threshed_frame)
-    cv2.imshow('WaterShed Frame', watershed_frame)
-    #cv2.imshow('Frame', frame)
-    cv2.imshow('Boxes', frame3)
+    #cv2.imshow('Thresh Frame', threshed_frame)
+    #cv2.imshow('WaterShed Frame', watershed_frame)
+    cv2.imshow('Boxes', frame2)
 
     # Key event listener to end video replay
     if cv2.waitKey(delay) & 0xFF == ord('q'):
